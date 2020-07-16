@@ -4,7 +4,7 @@ The purpose of this repo is to make my current location available on adriano.fyi
 
 # About 
 
-I can't imagine this is useful to many others. This repo consits of a receiver of GPS data and a web services that makes that data avaialble. 
+I can't imagine this is useful to many others. This repo consits of a receiver of GPS data and a web service that makes the data avaialble. 
 
 # Receiver 
 The receiver receives UDP packets containing NMEA sentences from my Sierra Wireless RV55 router. The sentences are parsed and appended to a log file.
