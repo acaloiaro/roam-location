@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"encoding/json"
@@ -10,29 +10,36 @@ import (
 	"strings"
 )
 
+// Listen listens for location requests from clients and return my current coordinates from the db located at dbPath
+// my last known location is always the tail end of the file
+func Listen(dbPath string) {
+	http.HandleFunc("/current_location", listenHandler(dbPath))
+	log.Fatal(http.ListenAndServe(":22495", nil))
+}
+
 type Location struct {
 	Lat float64 `json:"lat"`
 	Lon float64 `json:"lon"`
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	location := currentLocation()
-	byteArray, err := json.MarshalIndent(location, "", "  ")
-	if err != nil {
-		log.Fatalf("error providing current location: %v", err)
-	}
+func listenHandler(dbPath string) (handler func(http.ResponseWriter, *http.Request)) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		location := currentLocation(dbPath)
+		byteArray, err := json.MarshalIndent(location, "", "  ")
+		if err != nil {
+			log.Fatalf("error providing current location: %v", err)
+		}
 
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, string(byteArray))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, string(byteArray))
+	}
 }
 
-func currentLocation() (location Location) {
-	dbPath := os.Getenv("ROAM_LOCATION_DB_PATH")
-
+func currentLocation(dbPath string) (location Location) {
+	var err error
 	fileHandle, err := os.Open(dbPath)
-
 	if err != nil {
-		panic("Cannot open file")
+		log.Fatalf("unable to open db file: %v", err)
 	}
 	defer fileHandle.Close()
 
@@ -71,6 +78,4 @@ func currentLocation() (location Location) {
 }
 
 func main() {
-	http.HandleFunc("/current_location", handler)
-	log.Fatal(http.ListenAndServe(":22495", nil))
 }

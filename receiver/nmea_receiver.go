@@ -1,4 +1,4 @@
-package main
+package receiver
 
 import (
 	"fmt"
@@ -10,13 +10,19 @@ import (
 	"github.com/adrianmo/go-nmea"
 )
 
-func main() {
-	listen()
-}
+var dbFile *os.File
+var err error
 
-func listen() {
+// Receive receives NMEA sentences from the Sierra Wireless RV55 router and writes parsed sentences to
+// ROAM_LOCATION_DB_PATH
+func Receive(dbPath string) {
 	addr, _ := net.ResolveUDPAddr("udp", ":22335")
 	sock, _ := net.ListenUDP("udp", addr)
+	dbFile, err = os.OpenFile(dbPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("unable to open DB file: '%v'", err)
+	}
+	defer dbFile.Close()
 
 	for {
 		buf := make([]byte, 2048)
@@ -51,16 +57,8 @@ func handlePacket(buf []byte, rlen int) {
 }
 
 func appendLog(lat, lon float64, nmeaSentence string) {
-	dbPath := os.Getenv("ROAM_LOCATION_DB_PATH")
-
-	f, err := os.OpenFile(dbPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Println(err)
-	}
-	defer f.Close()
-
 	row := fmt.Sprintf("%f,%f,%s\n", lat, lon, nmeaSentence)
-	if _, err := f.WriteString(row); err != nil {
-		log.Println(err)
+	if _, err := dbFile.WriteString(row); err != nil {
+		log.Println("unable to write to database:", err)
 	}
 }
