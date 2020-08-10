@@ -57,7 +57,13 @@ func currentLocation(dbPath string) (location Location) {
 		fileHandle.ReadAt(char, cursor)
 
 		if cursor != -1 && (char[0] == '\n') { // stop if we find a line
-			break
+			parseNmeaSentence(line, &location)
+
+			// break when a 'good' location has been found. This will usually be myst last known location.
+			// when the router is reporting 0 coordinates, it doesn't have a signal
+			if location.Lat != 0 || location.Lon != 0 {
+				break
+			}
 		}
 
 		line = fmt.Sprintf("%s%s", string(char), line) // there is more efficient way
@@ -67,7 +73,11 @@ func currentLocation(dbPath string) (location Location) {
 		}
 	}
 
-	fields := strings.Split(line, ",")
+	return
+}
+
+func parseNmeaSentence(sentence string, location *Location) {
+	fields := strings.Split(sentence, ",")
 
 	if f, err := strconv.ParseFloat(fields[0], 64); err == nil {
 		location.Lat = f
@@ -76,9 +86,4 @@ func currentLocation(dbPath string) (location Location) {
 	if f, err := strconv.ParseFloat(fields[1], 64); err == nil {
 		location.Lon = f
 	}
-
-	return
-}
-
-func main() {
 }
