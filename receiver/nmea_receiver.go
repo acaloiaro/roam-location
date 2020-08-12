@@ -58,6 +58,12 @@ func handlePacket(buf []byte, rlen int) {
 
 func appendLog(lat, lon float64, nmeaSentence string) {
 	row := fmt.Sprintf("%f,%f,%s\n", lat, lon, nmeaSentence)
+
+	// don't log unknown locations
+	if lat == 0 || lon == 0 {
+		return
+	}
+
 	if _, err := dbFile.WriteString(row); err != nil {
 		log.Println("unable to write to database:", err)
 	}
