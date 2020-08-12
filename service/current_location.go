@@ -6,8 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
+
+	"github.com/acaloiaro/roam-location/nmea"
 )
 
 var port = 22495
@@ -18,11 +18,6 @@ func Listen(dbPath string) {
 	http.HandleFunc("/current_location", listenHandler(dbPath))
 	log.Printf("Listening: 0.0.0.0:%d", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
-}
-
-type Location struct {
-	Lat float64 `json:"lat"`
-	Lon float64 `json:"lon"`
 }
 
 func listenHandler(dbPath string) (handler func(http.ResponseWriter, *http.Request)) {
@@ -38,7 +33,7 @@ func listenHandler(dbPath string) (handler func(http.ResponseWriter, *http.Reque
 	}
 }
 
-func currentLocation(dbPath string) (location Location) {
+func currentLocation(dbPath string) (location nmea.Location) {
 	var err error
 	fileHandle, err := os.Open(dbPath)
 	if err != nil {
@@ -57,7 +52,7 @@ func currentLocation(dbPath string) (location Location) {
 		fileHandle.ReadAt(char, cursor)
 
 		if cursor != -1 && (char[0] == '\n') { // stop if we find a line
-			parseNmeaSentence(line, &location)
+			location = nmea.ParseLocation(line)
 
 			// break when a 'good' location has been found. This will usually be myst last known location.
 			// when the router is reporting 0 coordinates, it doesn't have a signal
@@ -74,16 +69,4 @@ func currentLocation(dbPath string) (location Location) {
 	}
 
 	return
-}
-
-func parseNmeaSentence(sentence string, location *Location) {
-	fields := strings.Split(sentence, ",")
-
-	if f, err := strconv.ParseFloat(fields[0], 64); err == nil {
-		location.Lat = f
-	}
-
-	if f, err := strconv.ParseFloat(fields[1], 64); err == nil {
-		location.Lon = f
-	}
 }
