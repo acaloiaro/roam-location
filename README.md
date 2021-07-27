@@ -15,4 +15,4 @@ The location service simply finds the last location appended to the log file and
 
 # Running
 
-ROAM_LOCATION_DB_PATH=/path/to/nmea_logs.log go run main.go
+`ROAM_LOCATION_DB_PATH=/path/to/nmea_logs.log go run main.go`
