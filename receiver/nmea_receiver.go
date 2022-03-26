@@ -37,7 +37,10 @@ func Receive(dbPath string) {
 
 func handlePacket(buf []byte, rlen int) {
 	sentences := fmt.Sprintln(string(buf[0:rlen]))
-	sentence := strings.Split(sentences, "\n")[0] // We're not concerned with the second sentence, yet
+
+	// Sierra wireless RV55 previously sent location data in the firest sentence, but has moved to
+	// the second sentence. If this changes again, I'll need to debug the reason
+	sentence := strings.Split(sentences, "\n")[1]
 	s, err := nmea.Parse(sentence)
 	if err != nil {
 		// ignoring bad nmea sentence
