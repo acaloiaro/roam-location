@@ -11,6 +11,10 @@ type Condition struct {
 // peakSolarRadiation is the approximate clear-sky maximum at sea level (W/m²).
 const peakSolarRadiation = 950.0
 
+// twilightSolar is the solar radiation threshold (W/m²) below which the sun is considered
+// low in the sky, producing dawn or dusk conditions.
+const twilightSolar = 30.0
+
 // sunFraction returns the fraction of peak solar radiation expected at the given
 // local time of day, using a simple sinusoidal model (sunrise ~6, sunset ~18).
 // Returns 0 outside of daylight hours.
@@ -52,8 +56,20 @@ func Infer(d Data, lat, lon float64) *Condition {
 	// Estimate local time from longitude (rough UTC offset).
 	utcMinutes := d.LastUpdated.Hour()*60 + d.LastUpdated.Minute()
 	localMinutes := utcMinutes + int(math.Round(lon/15))*60
+	localMinutes = ((localMinutes % 1440) + 1440) % 1440
 	fraction := sunFraction(localMinutes)
 	isDaytime := fraction > 0
+	isMorning := localMinutes < 720
+
+	// Dawn/dusk: sensor detects low but positive solar radiation while the sun is
+	// geometrically near the horizon (fraction < 0.2 or before/after model daylight).
+	// isMorning distinguishes the two without hard-coding sunrise/sunset hours.
+	if solar > 0 && solar < twilightSolar && (!isDaytime || fraction < 0.2) {
+		if isMorning {
+			return &Condition{"Dawn", "🌅"}
+		}
+		return &Condition{"Dusk", "🌇"}
+	}
 
 	if !isDaytime || solar < 10 {
 		if !isDaytime {
@@ -81,3 +97,4 @@ func Infer(d Data, lat, lon float64) *Condition {
 	}
 	return &Condition{"Overcast", "☁️"}
 }
+
