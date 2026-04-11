@@ -5,68 +5,84 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
+	"strings"
 
-	"github.com/acaloiaro/roam-location/nmea"
+	"github.com/acaloiaro/roam-location/weather"
 )
 
-var port = 22495
+const port = 22495
 
-// Listen listens for location requests from clients and return my current coordinates from the db located at dbPath
-// my last known location is always the tail end of the file
-func Listen(dbPath string) {
-	http.HandleFunc("/current_location", listenHandler(dbPath))
-	log.Printf("Listening: 0.0.0.0:%d", port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
+type locationData struct {
+	Lat  float64 `json:"lat"`
+	Lon  float64 `json:"lon"`
+	Name string  `json:"name,omitempty"`
 }
 
-func listenHandler(dbPath string) (handler func(http.ResponseWriter, *http.Request)) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		location := currentLocation(dbPath)
-		byteArray, err := json.MarshalIndent(location, "", "  ")
-		if err != nil {
-			log.Fatalf("error providing current location: %v", err)
+type whereAmI struct {
+	Location   *locationData      `json:"location,omitempty"`
+	Weather    *weather.Data      `json:"weather,omitempty"`
+	Conditions *weather.Condition `json:"conditions,omitempty"`
+}
+
+var allowedOrigins = map[string]bool{
+	"https://adriano.fyi":   true,
+	"http://localhost:1313": true,
+}
+
+func setCORS(w http.ResponseWriter, r *http.Request) {
+	if origin := r.Header.Get("Origin"); allowedOrigins[origin] {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
+}
+
+// Listen registers all HTTP endpoints and starts the server.
+func Listen(getLocation func() (lat, lon float64, name string, ok bool), wCache *weather.Cache) {
+	http.HandleFunc("/whereami", func(w http.ResponseWriter, r *http.Request) {
+		setCORS(w, r)
+
+		resp := whereAmI{}
+
+		if lat, lon, name, ok := getLocation(); ok {
+			resp.Location = &locationData{Lat: lat, Lon: lon, Name: name}
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, string(byteArray))
-	}
-}
-
-func currentLocation(dbPath string) (location nmea.Location) {
-	var err error
-	fileHandle, err := os.Open(dbPath)
-	if err != nil {
-		log.Fatalf("unable to open db file: %v", err)
-	}
-	defer fileHandle.Close()
-
-	line := ""
-	stat, _ := fileHandle.Stat()
-	fs := stat.Size()
-	var cursor int64 = fs - 1 // start before the newline
-	for {
-		cursor--
-
-		char := make([]byte, 1)
-		fileHandle.ReadAt(char, cursor)
-
-		if cursor != -1 && (char[0] == '\n') { // stop if we find a line
-			location = nmea.ParseLocation(line)
-
-			// break when a 'good' location has been found. This will usually be myst last known location.
-			// when the router is reporting 0 coordinates, it doesn't have a signal
-			if location.Lat != 0 || location.Lon != 0 {
-				break
+		if data, ok := wCache.Get(); ok {
+			resp.Weather = &data
+			if resp.Location != nil {
+				resp.Conditions = weather.Infer(data, resp.Location.Lat, resp.Location.Lon)
+			} else {
+				resp.Conditions = weather.Infer(data, 0, 0)
 			}
 		}
 
-		line = fmt.Sprintf("%s%s", string(char), line) // there is more efficient way
-
-		if cursor == -fs { // stop if we are at the begining
-			break
+		if resp.Location == nil && resp.Weather == nil {
+			http.Error(w, "no data yet", http.StatusServiceUnavailable)
+			return
 		}
-	}
 
-	return
+		b, err := json.MarshalIndent(resp, "", "  ")
+		if err != nil {
+			log.Printf("error marshaling whereami: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, string(b))
+	})
+
+	// Receives pushes from the Ambient Weather WS-5000 via the awnet custom server config.
+	// The station sends params as /data/report/&key=val&... (& instead of ?) so we fix that up.
+	http.HandleFunc("/data/report/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery == "" {
+			if i := strings.Index(r.RequestURI, "&"); i >= 0 {
+				r.URL.RawQuery = r.RequestURI[i+1:]
+			}
+		}
+		wCache.Update(r)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	log.Printf("listening on 0.0.0.0:%d", port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 }
