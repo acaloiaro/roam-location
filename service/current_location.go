@@ -80,6 +80,13 @@ func Listen(getLocation func() (lat, lon float64, name string, ok bool), wCache 
 			}
 		}
 		wCache.Update(r)
+		if data, ok := wCache.Get(); ok {
+			tempStr := "n/a"
+			if data.TempF != nil {
+				tempStr = fmt.Sprintf("%.1f°F", *data.TempF)
+			}
+			log.Printf("weather update received: temp=%s station=%s", tempStr, data.StationType)
+		}
 		w.WriteHeader(http.StatusOK)
 	})
 
