@@ -1,6 +1,9 @@
 package weather
 
-import "math"
+import (
+	"math"
+	"time"
+)
 
 // Condition is an inferred weather condition with a human label and emoji.
 type Condition struct {
@@ -8,8 +11,22 @@ type Condition struct {
 	Emoji string `json:"emoji"`
 }
 
-// peakSolarRadiation is the approximate clear-sky maximum at sea level (W/m²).
-const peakSolarRadiation = 950.0
+// atmosphericCeiling is the clear-sky solar radiation (W/m²) with the sun
+// directly overhead at sea level. This is the physical upper bound; actual
+// noon peaks are lower everywhere outside the tropics and scale with sin(elevation).
+const atmosphericCeiling = 950.0
+
+// solarNoonPeak returns the approximate clear-sky solar radiation (W/m²) at
+// solar noon for the given latitude and date. It accounts for both seasonal
+// declination and latitude so the normalization in Infer stays accurate year-round.
+func solarNoonPeak(lat float64, t time.Time) float64 {
+	declinationDeg := 23.45 * math.Sin(2*math.Pi/365*float64(t.YearDay()-81))
+	elevationDeg := 90.0 - math.Abs(lat-declinationDeg)
+	if elevationDeg <= 0 {
+		return 0
+	}
+	return atmosphericCeiling * math.Sin(elevationDeg * math.Pi / 180)
+}
 
 // twilightSolar is the solar radiation threshold (W/m²) below which the sun is considered
 // low in the sky, producing dawn or dusk conditions.
@@ -54,7 +71,11 @@ func Infer(d Data, lat, lon float64) *Condition {
 	}
 
 	// Estimate local time from longitude (rough UTC offset).
-	utcMinutes := d.LastUpdated.Hour()*60 + d.LastUpdated.Minute()
+	// Use the current wall-clock time rather than d.LastUpdated so that a stale
+	// cache entry (e.g. after a connectivity gap) doesn't cause the sun-angle
+	// calculation to reflect an hour from earlier in the day.
+	now := time.Now().UTC()
+	utcMinutes := now.Hour()*60 + now.Minute()
 	localMinutes := utcMinutes + int(math.Round(lon/15))*60
 	localMinutes = ((localMinutes % 1440) + 1440) % 1440
 	fraction := sunFraction(localMinutes)
@@ -83,8 +104,13 @@ func Infer(d Data, lat, lon float64) *Condition {
 	}
 
 	// Normalize solar radiation against the expected clear-sky max for this hour.
-	// Clamp to [0, 1] to absorb sensor noise.
-	normalized := math.Min(solar/(peakSolarRadiation*fraction), 1.0)
+	// Clamp to [0, 1] to absorb sensor noise or unusually bright readings (e.g.
+	// cloud-edge reflection).
+	peak := solarNoonPeak(lat, now)
+	if peak == 0 {
+		return &Condition{"Clear night", "🌙"}
+	}
+	normalized := math.Min(solar/(peak*fraction), 1.0)
 
 	if normalized > 0.85 {
 		return &Condition{"Sunny", "🌞"}
