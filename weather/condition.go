@@ -11,10 +11,17 @@ type Condition struct {
 	Emoji string `json:"emoji"`
 }
 
-// atmosphericCeiling is the clear-sky solar radiation (W/m²) with the sun
-// directly overhead at sea level. Actual clear-sky radiation at any other
-// elevation angle scales by sin(elevation).
+// atmosphericCeiling is the extraterrestrial solar irradiance at sea level (W/m²)
+// with the sun directly overhead.
 const atmosphericCeiling = 950.0
+
+// opticalDepth is the vertical atmospheric optical depth used in the Beer-Lambert
+// extinction model. At low sun angles the light path through the atmosphere is
+// 1/sin(elevation) times longer than vertical, so the effective transmittance
+// drops sharply. A value of 0.1 represents a clear sky and produces realistic
+// clear-sky readings across all elevation angles (e.g. ~26 W/m² at 5°, ~715 W/m²
+// at solar noon for mid-latitudes in spring).
+const opticalDepth = 0.1
 
 // solarPosition returns the solar elevation angle (radians) and hour angle
 // (degrees) for the given latitude, longitude, and UTC time.
@@ -80,8 +87,10 @@ func Infer(d Data, lat, lon float64) *Condition {
 	}
 
 	// Sun is above the horizon. Normalise against the clear-sky radiation
-	// expected at this elevation angle.
-	expectedClearSky := atmosphericCeiling * math.Sin(elevationRad)
+	// expected at this elevation angle, corrected for atmospheric extinction
+	// (Beer-Lambert): at low angles the light path is ~1/sin(elev) times
+	// longer than vertical, so the clear-sky ceiling drops sharply.
+	expectedClearSky := atmosphericCeiling * math.Exp(-opticalDepth/math.Sin(elevationRad)) * math.Sin(elevationRad)
 	if solar < 10 {
 		return &Condition{"Overcast", "☁️"}
 	}
