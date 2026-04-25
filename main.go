@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/acaloiaro/roam-location/geocode"
+	"github.com/acaloiaro/roam-location/gpsd"
 	"github.com/acaloiaro/roam-location/service"
-	"github.com/acaloiaro/roam-location/starlink"
 	"github.com/acaloiaro/roam-location/weather"
 	"github.com/acaloiaro/roam-location/webdav"
 )
@@ -65,7 +65,7 @@ func main() {
 
 	go func() {
 		for {
-			lat, lon, err := starlink.GetLocation(context.Background())
+			lat, lon, err := gpsd.GetLocation(context.Background())
 			if err != nil {
 				log.Printf("location poll error: %v", err)
 			} else {
