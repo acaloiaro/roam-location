@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -29,27 +28,12 @@ type nominatimResponse struct {
 	} `json:"address"`
 }
 
-const cacheTTL = 24 * time.Hour
-
-var (
-	httpClient  = &http.Client{Timeout: 10 * time.Second}
-	cacheMu     sync.Mutex
-	cachedLoc   Location
-	cacheExpiry time.Time
-)
+var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // CityCenter reverse-geocodes lat/lon to the centroid of the matched city.
-// Results are cached in memory for 24 hours to avoid hammering Nominatim.
 // zoom=10 asks Nominatim for city-level granularity; the returned coordinates
 // are the centroid of that administrative boundary, not the input coordinates.
 func CityCenter(ctx context.Context, lat, lon float64) (Location, error) {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-
-	if time.Now().Before(cacheExpiry) {
-		return cachedLoc, nil
-	}
-
 	url := fmt.Sprintf(
 		"https://nominatim.openstreetmap.org/reverse?lat=%f&lon=%f&format=json&zoom=10",
 		lat, lon,
@@ -100,7 +84,5 @@ func CityCenter(ctx context.Context, lat, lon float64) (Location, error) {
 		name += a.State
 	}
 
-	cachedLoc = Location{Lat: resLat, Lon: resLon, Name: name}
-	cacheExpiry = time.Now().Add(cacheTTL)
-	return cachedLoc, nil
+	return Location{Lat: resLat, Lon: resLon, Name: name}, nil
 }

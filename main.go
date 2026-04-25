@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"sync"
@@ -48,6 +49,15 @@ func (c *cache) get() (lat, lon float64, name string, ok bool) {
 	return c.lat, c.lon, c.name, c.ready
 }
 
+func milesApart(lat1, lon1, lat2, lon2 float64) float64 {
+	const r = 3958.8
+	lat1r, lat2r := lat1*math.Pi/180, lat2*math.Pi/180
+	dlat := (lat2 - lat1) * math.Pi / 180
+	dlon := (lon2 - lon1) * math.Pi / 180
+	a := math.Sin(dlat/2)*math.Sin(dlat/2) + math.Cos(lat1r)*math.Cos(lat2r)*math.Sin(dlon/2)*math.Sin(dlon/2)
+	return r * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
 func pollInterval() time.Duration {
 	if s := os.Getenv("POLL_INTERVAL_SECONDS"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 {
@@ -64,30 +74,37 @@ func main() {
 	wdClient := webdav.NewClientFromEnv()
 
 	go func() {
+		const geocodeTriggerMiles = 5.0
+		var geocodedLat, geocodedLon float64
+		var currentCity *geocode.Location
 		for {
 			lat, lon, err := gpsd.GetLocation(context.Background())
 			if err != nil {
 				log.Printf("location poll error: %v", err)
 			} else {
-				city, err := geocode.CityCenter(context.Background(), lat, lon)
-				if err != nil {
-					log.Printf("geocode error: %v", err)
-				} else {
-					loc.set(city.Lat, city.Lon, city.Name)
-					log.Printf("location updated: %.6f, %.6f (%s)", city.Lat, city.Lon, city.Name)
-
-					if wdClient != nil {
-						snap := snapshot{
-							RecordedAt: time.Now().UTC(),
-							Location:   &locationEntry{Lat: city.Lat, Lon: city.Lon, Name: city.Name},
-						}
-						if data, ok := wCache.Get(); ok {
-							snap.Weather = &data
-							snap.Conditions = weather.Infer(data, city.Lat, city.Lon)
-						}
-						if err := wdClient.Append(snap); err != nil {
-							log.Printf("webdav append error: %v", err)
-						}
+				log.Printf("gps location: %.6f, %.6f", lat, lon)
+				if currentCity == nil || milesApart(lat, lon, geocodedLat, geocodedLon) > geocodeTriggerMiles {
+					city, err := geocode.CityCenter(context.Background(), lat, lon)
+					if err != nil {
+						log.Printf("geocode error: %v", err)
+					} else {
+						geocodedLat, geocodedLon = lat, lon
+						currentCity = &city
+						loc.set(city.Lat, city.Lon, city.Name)
+						log.Printf("location updated: %.6f, %.6f (%s)", city.Lat, city.Lon, city.Name)
+					}
+				}
+				if currentCity != nil && wdClient != nil {
+					snap := snapshot{
+						RecordedAt: time.Now().UTC(),
+						Location:   &locationEntry{Lat: currentCity.Lat, Lon: currentCity.Lon, Name: currentCity.Name},
+					}
+					if data, ok := wCache.Get(); ok {
+						snap.Weather = &data
+						snap.Conditions = weather.Infer(data, currentCity.Lat, currentCity.Lon)
+					}
+					if err := wdClient.Append(snap); err != nil {
+						log.Printf("webdav append error: %v", err)
 					}
 				}
 			}
