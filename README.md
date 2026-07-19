@@ -1,3 +1,5 @@
+**NOTICE**: This repository has been moved to [https://code.adriano.fyi/me/roam-location](https://code.adriano.fyi/me/roam-location). Microsoft has shown little interest in stewarding what was once the best and largest open source community. This small act of migration is my way showing that we don't all support Microsoft's disinterest.
+
 # roam-location
 The purpose of this repo is to make my current location available on adriano.fyi. The coordinates from the two services here are used populate the map at https://adriano.fyi/whereami
 
